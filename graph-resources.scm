@@ -2,7 +2,7 @@
 ;; - what about those language filters??
 ;; - or get all properties??
 
-(use awful spiffy srfi-69)
+(use awful spiffy spiffy-request-vars srfi-69)
 
 (load "utilities.scm")
 (load "sparql.scm")
@@ -218,7 +218,7 @@
 	(graph (get-resource-graph resource realm)))
     (let-values (((named-graphs filter-statements)
                   (if filters
-                      (filter-statements realm resource (car filters) (cdr filters) '?s)
+                      (filter-statements realm resource filters '?s)
                       (values '() #f))))
       (select-from
        "?s"
@@ -244,33 +244,45 @@
 (define (new-sparql-variable)
   (string->symbol (conc "?" (->string (gensym)))))
 
-(define (filter-statements realm resource fields val last-var)
-  (let loop ((fields fields)
-             (lresource resource)
-             (statements '())
-             (var last-var)
-             (named-graphs '()))
-    (let* ((field (car fields))
-           (property (resource-property lresource field))
-           (new-var (new-sparql-variable))
-           (lgraph (if (equal? lresource resource)
-                       #f
-                       (get-resource-graph lresource realm)))
-           (new-triple (graph-statement
-                        ;;(if (not (equal? lresource resource))
-                        lgraph (triple var (property-predicate property) new-var))))
-      (if (property-link? property)
-          (loop (cdr fields) (get-resource-by-name (property-resource property))
-                (cons new-triple statements)
-                new-var (cons-when lgraph named-graphs))
-          (values
-           (delete-duplicates (cons-when lgraph named-graphs))
-           (triples
-            (cons
-             (format #f "FILTER (regex(str(~A), \"~A\") ) ."
-                     new-var val)
-             (cons new-triple statements))))))))
+(define (filter-statements realm resource filters last-var) ;; fields val last-var)
+  (let ((pairs (map (match-lambda ((fields . val)
+                      (let loop ((fields fields)
+                                 (lresource resource)
+                                 (statements '())
+                                 (var last-var)
+                                 (named-graphs '()))
+                        (let* ((field (car fields))
+                               (property (resource-property lresource field))
+                               (new-var (new-sparql-variable))
+                               (lgraph (if (equal? lresource resource)
+                                           #f
+                                           (get-resource-graph lresource realm)))
+                               (new-triple (graph-statement
+                                            ;;(if (not (equal? lresource resource))
+                                            lgraph (triple var (property-predicate property) new-var))))
+                          (if (property-link? property)
+                              (loop (cdr fields) (get-resource-by-name (property-resource property))
+                                    (cons new-triple statements)
+                                    new-var (cons-when lgraph named-graphs))
+                              (cons
+                               (delete-duplicates (cons-when lgraph named-graphs))
+                               (triples
+                                (cons
+                                 (format #f "FILTER (regex(str(~A), \"~A\") ) ."
+                                         new-var val)
+                                 (cons new-triple statements)))))))))
+       filters)))
+    (values (apply append (map car pairs)) (string-join  (map cdr pairs) "\n"))))
+
                   
+(define (filters-from-request)
+  (let ((filters ($ 'filter as-alist)))
+    (map (match-lambda
+           ((fields . value)
+            (cons 
+             (map string->symbol (string-split (symbol->string fields) "/"))
+             value)))
+         filters)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Implementation
@@ -396,9 +408,11 @@
 
 (define-rest-page ((realm resource) "/resources/:realm/:resource")
   (lambda ()
+    (filters-from-request)
     (list->vector
      (map item->json-ld
-	  (list-call (string->symbol realm) (string->symbol resource))))))
+	  (list-call (string->symbol realm) (string->symbol resource)
+                     (filters-from-request))))))
 
 (define (show-call realm-name resource-name id-stub)
   (let* ((realm (get-realm-by-name realm-name))
