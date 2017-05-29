@@ -241,10 +241,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Filters
 
-(define (new-sparql-variable)
-  (string->symbol (conc "?" (->string (gensym)))))
-
-(define (filter-statements realm resource filters last-var) ;; fields val last-var)
+(define (filter-statements realm resource filters last-var)
   (let ((pairs (map (match-lambda ((fields . val)
                       (let loop ((fields fields)
                                  (lresource resource)
@@ -258,7 +255,6 @@
                                            #f
                                            (get-resource-graph lresource realm)))
                                (new-triple (graph-statement
-                                            ;;(if (not (equal? lresource resource))
                                             lgraph (triple var (property-predicate property) new-var))))
                           (if (property-link? property)
                               (loop (cdr fields) (get-resource-by-name (property-resource property))
@@ -372,7 +368,6 @@
 	      (resource-property resource property-value))))
 	  (map car property-values))))
      (delete-properties realm resource id  (map list unique-property-names))
-     ;;     (delete-properties-query realm resource id
     (sparql/update
      (insert-properties-query realm resource id property-values))))
 
@@ -391,39 +386,24 @@
 	  (get-items-query realm resource filters)
 	  element))))
 
-
-;; (get-resource-by-name resource-name)))
 (define (get-linked-items realm resource id link-type linked-resource #!optional inverse?)
   (map (lambda (element)
 	 (get-item realm linked-resource element))
        (get-links realm resource id link-type linked-resource inverse?)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; API Calls
+;; Call Specification
 
 (define (list-call realm-name resource-name #!optional filters)
   (get-items (get-realm-by-name realm-name)
 	     (get-resource-by-name resource-name)
              filters))
 
-(define-rest-page ((realm resource) "/resources/:realm/:resource")
-  (lambda ()
-    (filters-from-request)
-    (list->vector
-     (map item->json-ld
-	  (list-call (string->symbol realm) (string->symbol resource)
-                     (filters-from-request))))))
-
 (define (show-call realm-name resource-name id-stub)
   (let* ((realm (get-realm-by-name realm-name))
 	(resource (get-resource-by-name resource-name))
 	(id (list (resource-base-prefix resource) id-stub)))
     (get-item realm resource id)))
-
-(define-rest-page ((realm resource id) "/resources/:realm/:resource/:id")
-  (lambda ()
-    (item->json-ld
-     (show-call (string->symbol realm) (string->symbol resource) (string->symbol id)))))
 
 (define (links-call realm-name resource-name id-stub link)
   (let* ((realm (get-realm-by-name realm-name))
@@ -434,13 +414,6 @@
 	 (linked-resource (get-resource-by-name (property-resource link-property)))
 	 (link-inverse? (property-inverse? link-property)))
     (get-linked-items realm resource id link-type linked-resource link-inverse?)))
-
-(define-rest-page ((realm resource id link) "/resources/:realm/:resource/:id/links/:link")
-  (lambda ()
-    (list->vector
-     (map item->json-ld
-	  (links-call (string->symbol realm) (string->symbol resource)
-		      (string->symbol id) (string->symbol link))))))
 
 (define (create-call realm-name resource-name id-stub item-object)
   (let* ((realm (get-realm-by-name realm-name))
@@ -456,13 +429,6 @@
 	 (body (read-string content-length (request-port (current-request)))))
     (read-json body)))
 
-(define-rest-page ((realm resource id) "/resources/:realm/:resource/:id")
-  (lambda ()
-    (create-call (string->symbol realm) (string->symbol resource) (string->symbol id)
-		 (read-request-json)))
-;;  (data  (with-input-from-string ($ 'data) read-json))
-  method: 'POST)
-
 ;; todo: if null/#f, delete link
 (define (update-call realm-name resource-name id-stub item-object)
   (let* ((realm (get-realm-by-name realm-name))
@@ -472,19 +438,51 @@
     (update-properties realm resource id property-values)
     '((success . "OK"))))
 
-(define-rest-page ((realm resource id) "/resources/:realm/:resource/:id")
-  (lambda ()
-    (update-call (string->symbol realm) (string->symbol resource) (string->symbol id)
-		 (read-request-json)))
-  method: 'PATCH)
-
 (define (delete-call realm-name resource-name id-stub)
   (let* ((realm (get-realm-by-name realm-name))
 	(resource (get-resource-by-name resource-name))
 	(id (list (resource-base-prefix resource) id-stub)))
     (delete-item realm resource id)))
 
-(define-rest-page ((realm resource id) "/resources/:realm/:resource/:id")
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Rest Calls
+
+
+(define-rest-call ((realm resource) "/resources/:realm/:resource")
+  (lambda ()
+    (filters-from-request)
+    (list->vector
+     (map item->json-ld
+	  (list-call (string->symbol realm) (string->symbol resource)
+                     (filters-from-request))))))
+
+(define-rest-call ((realm resource id) "/resources/:realm/:resource/:id")
+  (lambda ()
+    (item->json-ld
+     (show-call (string->symbol realm) (string->symbol resource) (string->symbol id)))))
+
+
+(define-rest-call ((realm resource id link) "/resources/:realm/:resource/:id/links/:link")
+  (lambda ()
+    (list->vector
+     (map item->json-ld
+	  (links-call (string->symbol realm) (string->symbol resource)
+		      (string->symbol id) (string->symbol link))))))
+
+(define-rest-call ((realm resource id) "/resources/:realm/:resource/:id")
+  (lambda ()
+    (create-call (string->symbol realm) (string->symbol resource) (string->symbol id)
+		 (read-request-json)))
+;;  (data  (with-input-from-string ($ 'data) read-json))
+  method: 'POST)
+
+(define-rest-call ((realm resource id) "/resources/:realm/:resource/:id")
+  (lambda ()
+    (update-call (string->symbol realm) (string->symbol resource) (string->symbol id)
+		 (read-request-json)))
+  method: 'PATCH)
+
+(define-rest-call ((realm resource id) "/resources/:realm/:resource/:id")
   (lambda ()
     (delete-call (string->symbol realm) (string->symbol resource) (string->symbol id))
     '((success . "OK")))
@@ -506,7 +504,6 @@
 		       #f)))
 	       item-object)))
 
-;; put things in contexts?
 (define (item->json-ld item)
   (let* ((resource (item-resource item))
 	   (props (resource-properties resource)))

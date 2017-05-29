@@ -23,6 +23,9 @@
           ((symbol? x) (symbol->string x))
 	  ((namespace-pair? x) (expand-namespace x))))
 
+(define (new-sparql-variable)
+  (string->symbol (conc "?" (->string (gensym)))))
+
 (define (s-triple trip)
   (match-let (((a b c) trip))
     (format #f "~A ~A ~A."

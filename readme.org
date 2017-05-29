@@ -1,6 +1,30 @@
+* Overview
+
+Example in `config-gr.scm`
+
+Sample calls:
+
+```
+/resources/AH/product?filter.ecoicop/name=rice&filter.description=soda
+```
+
 * To Do
 
-** Threads
+** Filters
+*** add to (link-call)
+*** format (filter.link/prop=value ...)
 
-*** TODO still getting "too many open files" for 5000+ connections with pmap-pool
-*** TODO pmap-pool without "apply" for long lists
+** Includes
+how to define? for json-ld
+
+** Data format
+*** links
+*** id
+
+*** json-ld contexts
+...
+** Pagination
+
+** Caching
+*** graph queries
+
