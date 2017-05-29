@@ -105,13 +105,6 @@
 	 (caar property-list))
 	(else (get-property-by-predicate (cdr property-list) predicate))))
 	 
-
-(define (get-resource-graph resource realm)
-  (or (resource-graph resource)
-      (car (query-with-vars (graph)
-                            (get-graph-query resource realm) 
-                            graph))))
-
 (define (get-resource-graph-by-name name realm)
   (get-resource-graph (get name 'resource) realm))
 
@@ -120,8 +113,18 @@
    (get-resource-by-name
     (property-resource property)) realm))
 
+;; add: abstraction for property-value pairs (for updating and deleting)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Queries
+
+;; should be cached since we do this alot
+(define (get-resource-graph resource realm)
+  (or (resource-graph resource)
+      (car (query-with-vars 
+            (graph)
+            (get-graph-query resource realm) 
+            graph))))
 
 (define (resource-property-graphs realm resource)
   (let ((inverse-properties (filter property-inverse? (resource-properties resource))))
@@ -157,12 +160,12 @@
 	  properties))))
 
 (define (delete-inverse-property-query realm resource id property)
-  (let ((statement (s-triple `(?s ,(property-predicate property) ,id))))
-    (delete-from
-     statement
-     #:where statement
-     #:graph  (get-resource-graph
-	       (get-resource-by-name (property-resource property)) realm))))
+  (delete-from
+   (s-triple `(?s ,(property-predicate property) ,id))
+   #:where statement
+   #:graph  (get-resource-graph
+             (get-resource-by-name
+              (property-resource property)) realm)))
 
 (define (delete-properties-query-statement realm resource id property-values #!optional full?)
   (conc (s-triple `(,id ?p ?o))
@@ -180,7 +183,6 @@
 (define (delete-properties-query realm resource id property-values #!key full?)
   (let ((graph (get-resource-graph resource realm)))
     (delete-triples
-     ;;"?s ?p ?o"
      (s-triple `(,id ?p ?o))
      #:where (delete-properties-query-statement realm resource id property-values full?)
      #:graph (reify graph))))
@@ -241,6 +243,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Filters
 
+;; this needs to be broken up and simplified
+;; also, add some other filters!
 (define (filter-statements realm resource filters last-var)
   (let ((pairs (map (match-lambda ((fields . val)
                       (let loop ((fields fields)
@@ -269,7 +273,6 @@
                                  (cons new-triple statements)))))))))
        filters)))
     (values (apply append (map car pairs)) (string-join  (map cdr pairs) "\n"))))
-
                   
 (define (filters-from-request)
   (let ((filters ($ 'filter as-alist)))
