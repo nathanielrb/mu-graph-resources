@@ -38,13 +38,13 @@
 
 (define (graph-statement graph statements)
   (if graph
-      (format #f "{ GRAPH ~A { ~A } }"
+      (format #f "GRAPH ~A { ~A } ."
               (reify graph)
               statements)
-      (format #f "{ ~A }" statements)))
+      statements))
 
 (define (union statements)
-  (string-join statements " UNION "))
+  (string-join (map bracketed statements) " UNION "))
 
 (define (triples trips)
   (string-join trips "\n"))

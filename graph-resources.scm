@@ -157,8 +157,7 @@
 	  properties))))
 
 (define (delete-inverse-property-query realm resource id property)
-  (let ((statement (format #f "?s ~A ~A "
-			   (reify (property-predicate property)) (reify id))))
+  (let ((statement (s-triple `(?s ,(property-predicate property) ,id))))
     (delete-from
      statement
      #:where statement
@@ -166,59 +165,53 @@
 	       (get-resource-by-name (property-resource property)) realm))))
 
 (define (delete-properties-query-statement realm resource id property-values #!optional full?)
-  (conc "?s ?p ?o .\n"
-	(if full? (format #f " { ~A a ?o .} UNION " (reify id)) "")
-	(string-join
-	 (map (lambda (property-value)
-		(format #f "{ ~A ~A ~A } ~%"
-			(reify id)
-			(reify (resource-property-predicate
-				resource (car property-value)))
-			(if (null? (cdr property-value))
-			    "?o"
-			    (reify (cdr property-value)))))
-	      property-values)
-	 " UNION ")))
+  (conc (s-triple `(,id ?p ?o))
+	(union
+         (cons-when 
+          (if full? (s-triple `(,id a ?o)) #f)
+          (map (lambda (property-value)
+                 (s-triple `(,id
+                             ,(resource-property-predicate resource (car property-value))
+                             ,(if (null? (cdr property-value))
+                                 '?o
+                                 (cdr property-value)))))
+               property-values)))))
 
 (define (delete-properties-query realm resource id property-values #!key full?)
   (let ((graph (get-resource-graph resource realm)))
     (delete-triples
-     "?s ?p ?o"
+     ;;"?s ?p ?o"
+     (s-triple `(,id ?p ?o))
      #:where (delete-properties-query-statement realm resource id property-values full?)
      #:graph (reify graph))))
 
 (define (insert-inverse-property-query realm resource id property-value)
   (let ((property (resource-property resource (car property-value))))
     (insert-triples
-     (format #f "~A ~A ~A "
-	     (reify (list (resource-base-prefix resource)
-			  (cdr property-value)))
-	     (reify (property-predicate property))
-	     (reify id))
+     (triple (list (resource-base-prefix resource)
+			  (cdr property-value))
+              (property-predicate property)
+              id)
      #:graph  (get-resource-graph
 	       (get-resource-by-name (property-resource property)) realm))))
-
 
 (define (insert-properties-query realm resource id property-values)
   (let ((graph (get-resource-graph resource realm)))
     (insert-triples
      (string-join
       (map (lambda (property-value)
-	     (format #f "~A ~A ~A .~%"
-		     (reify id)
-		     (reify (resource-property-predicate
-			     resource (car property-value)))
-		     (reify (cdr property-value))))
+             (triple id
+                     (resource-property-predicate
+                      resource (car property-value))
+                     (cdr property-value)))
 	   property-values))
      #:graph (reify graph))))
 
 (define (create-item-query realm resource id)
   (let ((graph (get-resource-graph resource realm)))
     (insert-triples
-     (format #f "~A a ~A"
-	     (reify id)
-	     (reify (resource-type resource)))
-     #:graph graph)))
+     (triple id #:a (resource-type resource))
+     #:graph (reify graph))))
 	    
 (define (get-items-query realm resource #!optional filters)
   (let ((type (resource-type resource))
@@ -229,7 +222,7 @@
                       (values '() #f))))
       (select-from
        "?s"
-       (conc (format #f "?s a ~A~%" (reify type))
+       (conc (s-triple `(?s #:a ,type))
              filter-statements)
        #:named-graphs (map reify named-graphs)
        #:graph (reify graph)))))
@@ -241,9 +234,9 @@
     (select-triples
      "?o"
      (if inverse?
-	 (format #f "?o ~A ~A~%" (reify link-type) (reify id))
-	 (format #f "~A ~A ?o~%" (reify id) (reify link-type)))
-     #:graph graph)))
+         (s-triple `(?o ,link-type ,id))
+         (s-triple `(,id ,link-type ?o)))
+     #:graph (reify graph))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Filters
