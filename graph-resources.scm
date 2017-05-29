@@ -12,6 +12,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Model
 
+;; add: abstraction for property-value pairs (for updating and deleting)
+
 (define *realms* (make-parameter '()))
 
 (define (define-realm name value)
@@ -112,8 +114,6 @@
   (get-resource-graph
    (get-resource-by-name
     (property-resource property)) realm))
-
-;; add: abstraction for property-value pairs (for updating and deleting)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Queries
@@ -448,8 +448,45 @@
     (delete-item realm resource id)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Rest Calls
+;; Data Format
 
+(define (extract-properties resource item-object)
+  (filter values
+	  (map (lambda (pv)
+		 (let ((property (resource-property resource (car pv))))
+		   (if property
+		       (let ((p-resource (get-property-resource property)))
+			 (if p-resource
+			     (cons (car pv)
+				   (list (resource-base-prefix p-resource) (cdr pv)))
+			     pv))
+		       #f)))
+	       item-object)))
+
+(define (item->json-ld item)
+  (let* ((resource (item-resource item))
+	   (props (resource-properties resource)))
+    `((@id . ,(write-uri (expand-uri (item-id item)))) ;; **
+      (@type . ,(write-uri (expand-uri (resource-type resource)))) ;; **
+      ,@(map (lambda (prop)
+	       (cons (car prop)
+		     (if (pair? (cdr prop))
+			 (list->vector (cdr prop))
+			 (cdr prop))))
+	     (item-properties item))
+      (@context ,@(map (lambda (prop)
+			 (cons (car prop)
+			       (write-uri (reify (property-predicate prop)))))
+		       props)))))
+
+;; to do: handle @contexts
+(define (json-ld->item realm json-ld)
+  (let ((resource (get-resource-by-uri (alist-ref '@type json-ld)))
+	(id (read-uri (alist-ref '@id json-ld))))
+    (make-item resource id (get-properties realm resource id))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Rest Calls
 
 (define-rest-call ((realm resource) "/resources/:realm/:resource")
   (lambda ()
@@ -490,42 +527,3 @@
     (delete-call (string->symbol realm) (string->symbol resource) (string->symbol id))
     '((success . "OK")))
   method: 'DELETE)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Data Format
-
-(define (extract-properties resource item-object)
-  (filter values
-	  (map (lambda (pv)
-		 (let ((property (resource-property resource (car pv))))
-		   (if property
-		       (let ((p-resource (get-property-resource property)))
-			 (if p-resource
-			     (cons (car pv)
-				   (list (resource-base-prefix p-resource) (cdr pv)))
-			     pv))
-		       #f)))
-	       item-object)))
-
-(define (item->json-ld item)
-  (let* ((resource (item-resource item))
-	   (props (resource-properties resource)))
-    `((@id . ,(write-uri (expand-uri (item-id item)))) ;; **
-      (@type . ,(write-uri (expand-uri (resource-type resource)))) ;; **
-      ,@(map (lambda (prop)
-	       (cons (car prop)
-		     (if (pair? (cdr prop))
-			 (list->vector (cdr prop))
-			 (cdr prop))))
-	     (item-properties item))
-      (@context ,@(map (lambda (prop)
-			 (cons (car prop)
-			       (write-uri (reify (property-predicate prop)))))
-		       props)))))
-
-;; to do: handle @contexts
-(define (json-ld->item realm json-ld)
-  (let ((resource (get-resource-by-uri (alist-ref '@type json-ld)))
-	(id (read-uri (alist-ref '@id json-ld))))
-    (make-item resource id (get-properties realm resource id))))
-
